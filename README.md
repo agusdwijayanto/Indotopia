@@ -8,7 +8,7 @@ Game tycoon pabrik 2D di browser, terinspirasi Factory Town Tycoon (Roblox). Ban
 - **WASD / panah**: jalan. **E**: interaksi (panen, buka mesin, buka toko). **B**: menu bangun. **R**: putar arah conveyor. Klik petak di sebelah karakter juga bisa.
 - Di HP: joystick virtual + tombol Aksi.
 - Panen pohon, pasir, tanah liat, dan bijih di lahan kiri. Bangun mesin di lahan, muat bahannya, pilih resep, ambil hasilnya atau sambungkan conveyor ke Storage.
-- Jual hasil ke toko di kota kanan: tiap toko hanya membeli barang tertentu dengan harga tetap.
+- Jual hasil ke toko di kota: tiap toko hanya membeli barang tertentu dengan harga tetap.
 - Uang dipakai buat riset mesin berikutnya, upgrade alat di Tool Shop, atau beli bahan instan di Exchange (lebih mahal).
 - Progres tersimpan otomatis di browser. Tombol Reset mengembalikan ke modal awal $50.
 

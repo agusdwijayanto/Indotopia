@@ -72,6 +72,11 @@ const DATA = {
 
   // buys: harga toko membeli dari pemain; sells: harga pemain membeli dari toko
   shops: {
+    sketchwood: {
+      name: "SketchWood Cotton",
+      buys: {},
+      sells: {}
+    },
     carpenterShop: {
       name: "Toko Carpenter",
       buys: { "Log": 7, "Plank": 6, "Pillar": 12, "Wood Frame": 28, "Table": 45, "Bench": 40, "Window": 55 },

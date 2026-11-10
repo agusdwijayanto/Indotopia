@@ -1,8 +1,27 @@
 "use strict";
 // Indotopia v1: tycoon pabrik 2D. Semua logika di file ini, data di data.js.
 
-const TILE = 32, MW = 33, MH = 22;
-const CITY_X = 24; // kolom awal area kota
+const TILE = 32, MW = 96, MH = 60;
+// zona dunia (petak) mengikuti denah game asli, barat ke timur
+const PLOT = { x: 2, y: 22, w: 30, h: 22 };  // lahan bangunan pemain
+const TOWN = { x: 40, y: 4, w: 24, h: 22 };  // kota: plaza + toko
+const MAYOR = { x: 18, y: 20 };              // NPC Mayor di depan area awal
+// bangunan pajangan yang tokonya belum aktif: [x, y, lebar, tinggi, pesan]
+const SOON = [
+  [72, 23, 3, 2, "Toko Desa Gurun — segera hadir"],
+  [81, 23, 3, 2, "Toko Desa Gurun — segera hadir"],
+  [75, 27, 3, 2, "Toko Desa Gurun — segera hadir"],
+  [88, 36, 5, 4, "Toko Kapal Bajak Laut — segera hadir"]
+];
+// jalan tanah: [x, y, lebar, tinggi]
+const ROADS = [
+  [16, 14, 75, 2],  // poros utama: area awal - town - desert
+  [16, 16, 2, 6],   // dari poros ke pintu plot
+  [51, 16, 2, 29],  // cabang town ke bukit tambang
+  [8, 44, 2, 12],   // cabang plot ke sungai (jadi jembatan di atas air)
+  [78, 16, 2, 26],  // cabang desert: desa gurun - kapal
+  [80, 40, 9, 2]    // jalan pantai ke kapal
+];
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
@@ -10,6 +29,32 @@ const key = (x, y) => x + "," + y;
 const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const DIR_ARROW = { up: "▲", down: "▼", left: "◀", right: "▶" };
 const NODE_COLORS = { stone: "#9a9a9a", iron: "#b5651d", copper: "#e08a4c", tin: "#cfd4d8" };
+
+const ROADSET = new Set();
+for (const [rx, ry, rw, rh] of ROADS) for (let y = ry; y < ry + rh; y++) for (let x = rx; x < rx + rw; x++) ROADSET.add(key(x, y));
+
+function inPlot(x, y) { return x >= PLOT.x && x < PLOT.x + PLOT.w && y >= PLOT.y && y < PLOT.y + PLOT.h; }
+function isWaterRaw(x, y) {
+  if (y >= 50 && y <= 53 && x <= 40) return true;           // sungai barat
+  if (x >= 84 && x <= 87 && y >= 8 && y <= 11) return true; // oasis desert
+  if (x >= 93) return true;                                 // laut pantai timur
+  return false;
+}
+// jenis permukaan petak: menentukan warna gambar dan bisa/tidak dilewati
+function groundAt(x, y) {
+  if (ROADSET.has(key(x, y))) return isWaterRaw(x, y) ? "bridge" : "road";
+  if (isWaterRaw(x, y)) return "water";
+  if (x >= 68) return "sand"; // desert + pantai
+  if (x >= TOWN.x && x < TOWN.x + TOWN.w && y >= TOWN.y && y < TOWN.y + TOWN.h) return "paved";
+  if (x >= 41 && x <= 62 && y >= 39 && y <= 58) return "rock"; // bukit tambang
+  if (inPlot(x, y)) return "plot";
+  if (x < 24 && y < 20) return "forest"; // hutan barat laut
+  return "grass";
+}
+function soonAt(x, y) {
+  for (const [sx, sy, w, h, msg] of SOON) if (x >= sx && x < sx + w && y >= sy && y < sy + h) return msg;
+  return null;
+}
 
 // ---------- state ----------
 let S;
@@ -22,30 +67,44 @@ function freshState() {
     machines: [],   // {type,x,y,recipe,in,out,progress}
     belts: {},      // "x,y" -> {dir, item}
     nodes: [],      // {type,x,y,readyAt}
-    player: { x: 4 * TILE, y: 11 * TILE, dir: "down" },
+    player: { x: 6 * TILE, y: 30 * TILE, dir: "down" }, // spawn di plot area awal
     beltDir: "right",
     shopTools: {}   // alat yang sudah dibeli pemain di Tool Shop (per tier)
   };
 }
 
-// posisi toko tetap di kota: [shopId, x, y, lebar]
+// posisi toko tetap: [shopId, x, y, lebar]. Town mengelilingi plaza, Exchange menempel di sisi timur Town
 const SHOPS = [
-  ["carpenterShop", 25, 2, 4],
-  ["blacksmithShop", 30, 2, 3],
-  ["toolShop", 25, 8, 4],
-  ["exchange", 30, 8, 3]
+  ["sketchwood", 42, 6, 4],
+  ["carpenterShop", 58, 6, 4],
+  ["blacksmithShop", 43, 20, 3],
+  ["toolShop", 58, 20, 4],
+  ["exchange", 64, 12, 3]
 ];
 
 function seedNodes() {
   const put = (type, x, y) => S.nodes.push({ type, x, y, readyAt: 0 });
-  const trees = [[2,3],[5,2],[8,4],[12,2],[16,3],[20,2],[3,8],[7,9],[11,7],[15,9],[19,7],[22,4],[2,15],[6,17],[10,15],[14,17],[18,15],[21,10],[9,12],[17,12]];
-  trees.forEach(([x, y]) => put("tree", x, y));
-  [[3,5],[4,5],[3,6]].forEach(([x, y]) => put("sand", x, y));
-  [[6,5],[7,5],[6,6]].forEach(([x, y]) => put("clay", x, y));
-  [[13,16],[14,16]].forEach(([x, y]) => put("stone", x, y));
-  [[16,16],[17,16]].forEach(([x, y]) => put("iron", x, y));
-  [[19,16],[20,16]].forEach(([x, y]) => put("copper", x, y));
-  [[13,19],[14,19]].forEach(([x, y]) => put("tin", x, y));
+  const taken = (x, y) => nodeAt(x, y) || ROADSET.has(key(x, y)) || shopAt(x, y) || soonAt(x, y) || (x === MAYOR.x && y === MAYOR.y);
+  // sebaran deterministik per zona; petak jalan/air/plot/kota selalu dilewati
+  const scatter = (type, x0, y0, x1, y1, mod, off) => {
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      if ((x * 31 + y * 17 + off) % mod) continue;
+      const g = groundAt(x, y);
+      if (g === "water" || g === "bridge" || g === "road" || g === "plot" || g === "paved") continue;
+      if (!taken(x, y)) put(type, x, y);
+    }
+  };
+  scatter("tree", 1, 1, 22, 18, 4, 0);      // hutan barat laut (oak/pine)
+  scatter("tree", 69, 2, 91, 57, 29, 3);    // palm jarang di desert
+  scatter("tree", 82, 5, 90, 15, 5, 1);     // palm rapat sekitar oasis
+  scatter("sand", 2, 47, 38, 49, 4, 2);     // tepi utara sungai
+  scatter("sand", 2, 54, 38, 56, 4, 5);     // tepi selatan sungai
+  scatter("clay", 2, 47, 38, 56, 5, 7);     // tanah liat di tepi sungai
+  scatter("stone", 42, 40, 50, 57, 5, 1);   // bukit tambang: batu
+  scatter("iron", 48, 40, 56, 57, 6, 2);    // bukit tambang: besi
+  scatter("copper", 54, 40, 61, 57, 6, 4);  // bukit tambang: tembaga
+  scatter("tin", 69, 31, 91, 57, 13, 3);    // desert: timah
+  scatter("sand", 69, 31, 91, 57, 11, 6);   // desert: pasir
 }
 
 // ---------- hitungan stok ----------
@@ -61,7 +120,6 @@ function activeCount() {
 function addInv(item, n) { S.inv[item] = (S.inv[item] || 0) + n; if (S.inv[item] <= 0) delete S.inv[item]; }
 
 // ---------- peta & tabrakan ----------
-function isCity(x, y) { return x >= CITY_X; }
 function shopAt(x, y) {
   for (const [id, sx, sy, w] of SHOPS) if (x >= sx && x < sx + w && y >= sy && y < sy + 2) return id;
   return null;
@@ -70,7 +128,9 @@ function nodeAt(x, y) { return S.nodes.find(n => n.x === x && n.y === y); }
 function machineAt(x, y) { return S.machines.find(m => m.x === x && m.y === y); }
 function blocked(x, y) {
   if (x < 0 || y < 0 || x >= MW || y >= MH) return true;
-  if (shopAt(x, y) || machineAt(x, y)) return true;
+  if (groundAt(x, y) === "water") return true;
+  if (shopAt(x, y) || machineAt(x, y) || soonAt(x, y)) return true;
+  if (x === MAYOR.x && y === MAYOR.y) return true;
   const n = nodeAt(x, y);
   if (n && n.readyAt <= performance.now()) return true;
   return false;
@@ -172,6 +232,9 @@ function tickBelts(dt) {
 // ---------- interaksi ----------
 function interact() {
   const [fx, fy] = frontTile();
+  if (fx === MAYOR.x && fy === MAYOR.y) return toast("Mayor: lahan plotmu 30x22 petak. Perluasan plot belum tersedia.");
+  const soon = soonAt(fx, fy);
+  if (soon) return toast(soon);
   const shopId = shopAt(fx, fy);
   if (shopId) return openShop(shopId);
   const m = machineAt(fx, fy);
@@ -289,7 +352,7 @@ function openMachine(m) {
 }
 
 function openBuild() {
-  let html = "<h3>Menu Bangun</h3><p style='font-size:13px'>Uang: $" + S.money + ". Klik bangunan, lalu klik petak rumput di lahan.</p>";
+  let html = "<h3>Menu Bangun</h3><p style='font-size:13px'>Uang: $" + S.money + ". Klik bangunan, lalu klik petak di lahan plot (garis kuning).</p>";
   for (const id in DATA.machines) {
     const def = DATA.machines[id];
     if (S.unlocked[id]) {
@@ -313,7 +376,8 @@ function openBuild() {
 
 function placeAt(tx, ty) {
   if (!buildMode) return false;
-  if (isCity(tx, ty) || blocked(tx, ty) || S.belts[key(tx, ty)]) { toast("Petak tidak kosong"); return true; }
+  if (!inPlot(tx, ty)) { toast("Bangunan hanya boleh di lahan plot"); return true; }
+  if (blocked(tx, ty) || S.belts[key(tx, ty)]) { toast("Petak tidak kosong"); return true; }
   if (buildMode === "conveyor") {
     S.belts[key(tx, ty)] = { dir: S.beltDir, item: null };
   } else {
@@ -332,19 +396,41 @@ function updateHUD() {
   list.innerHTML = keys.length ? keys.map(k => "<div><span>" + k + "</span><b>" + S.inv[k] + "</b></div>").join("") : "<div>Tidak ada barang</div>";
 }
 
+// ---------- kamera ----------
+// mengikuti pemain dengan jeda lembut (lerp), berhenti di tepi dunia
+const cam = { x: 0, y: 0 };
+function camTarget() {
+  return [
+    Math.max(0, Math.min(MW * TILE - canvas.width, S.player.x + TILE / 2 - canvas.width / 2)),
+    Math.max(0, Math.min(MH * TILE - canvas.height, S.player.y + TILE / 2 - canvas.height / 2))
+  ];
+}
+function snapCam() { const [tx, ty] = camTarget(); cam.x = tx; cam.y = ty; }
+
 // ---------- gambar (prosedural, gaya piksel sederhana) ----------
 function rect(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); }
+const GCOLORS = {
+  grass: ["#549254", "#5b9a5b"], forest: ["#40763f", "#478548"], plot: ["#69a862", "#71b06a"],
+  paved: ["#8d8578", "#968e7f"], road: ["#a9834f", "#b08d55"], bridge: ["#8a6d3b", "#93763f"],
+  sand: ["#dfc98d", "#e6d194"], rock: ["#8a7f72", "#94887a"], water: ["#3a6ea5", "#35679c"]
+};
 function draw() {
-  const camX = Math.max(0, Math.min(MW * TILE - canvas.width, S.player.x + TILE / 2 - canvas.width / 2));
-  const camY = Math.max(0, Math.min(MH * TILE - canvas.height, S.player.y + TILE / 2 - canvas.height / 2));
   ctx.save();
-  ctx.translate(-Math.round(camX), -Math.round(camY));
-  // tanah
-  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
-    if (isCity(x, y)) rect(x * TILE, y * TILE, TILE, TILE, (x + y) % 2 ? "#8d8578" : "#968e7f");
-    else rect(x * TILE, y * TILE, TILE, TILE, (x + y) % 2 ? "#549254" : "#5b9a5b");
+  ctx.translate(-Math.round(cam.x), -Math.round(cam.y));
+  // tanah per zona (hanya petak yang terlihat kamera)
+  const x0 = Math.max(0, Math.floor(cam.x / TILE)), x1 = Math.min(MW - 1, x0 + Math.ceil(canvas.width / TILE) + 1);
+  const y0 = Math.max(0, Math.floor(cam.y / TILE)), y1 = Math.min(MH - 1, y0 + Math.ceil(canvas.height / TILE) + 1);
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const g = groundAt(x, y);
+    rect(x * TILE, y * TILE, TILE, TILE, GCOLORS[g][(x + y) % 2]);
+    if (g === "water") rect(x * TILE + 6, y * TILE + 14, 12, 2, "#5b8cc0");
   }
-  rect(CITY_X * TILE - 4, 0, 4, MH * TILE, "#6d675c");
+  // garis batas plaza town dan lahan plot
+  ctx.strokeStyle = "#6d675c"; ctx.lineWidth = 2;
+  ctx.strokeRect(48 * TILE, 12 * TILE, 8 * TILE, 6 * TILE);
+  ctx.strokeStyle = "#ffd75e";
+  ctx.strokeRect(PLOT.x * TILE, PLOT.y * TILE, PLOT.w * TILE, PLOT.h * TILE);
+  ctx.lineWidth = 1;
   // node sumber daya
   const now = performance.now();
   for (const n of S.nodes) {
@@ -353,7 +439,12 @@ function draw() {
       rect(px + 10, py + 20, 12, 8, "#7a5c3e");
       continue;
     }
-    if (n.type === "tree") {
+    if (n.type === "tree" && groundAt(n.x, n.y) === "sand") { // palm di desert
+      rect(px + 14, py + 14, 5, 16, "#8a6d3b");
+      rect(px + 2, py + 4, 12, 5, "#3a8540");
+      rect(px + 18, py + 4, 12, 5, "#3a8540");
+      rect(px + 10, py + 1, 12, 5, "#2e6b30");
+    } else if (n.type === "tree") {
       rect(px + 13, py + 18, 6, 12, "#7a5c3e");
       rect(px + 4, py + 2, 24, 18, "#2e6b30");
       rect(px + 8, py + 6, 8, 6, "#3a8540");
@@ -396,6 +487,24 @@ function draw() {
     ctx.fillText(DATA.shops[id].name, sx * TILE + 6, sy * TILE + 34);
     rect(sx * TILE + 4, (sy + 1) * TILE + 8, w * TILE - 8, 12, "#c9a86a");
   }
+  // bangunan desa gurun & kapal bajak laut (pajangan, toko belum aktif)
+  for (const [sx, sy, w, h] of SOON) {
+    rect(sx * TILE, sy * TILE, w * TILE, h * TILE, "#a9825a");
+    rect(sx * TILE, sy * TILE, w * TILE, 12, "#7a4a2b");
+  }
+  rect(90 * TILE + 14, 34 * TILE, 4, 2 * TILE, "#5a3a1a");      // tiang kapal
+  rect(90 * TILE + 18, 34 * TILE + 4, 14, 18, "#e8e2d2");      // layar kapal
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 12px sans-serif";
+  ctx.fillText("Desa Gurun", 73 * TILE, 22 * TILE + 12);
+  ctx.fillText("Kapal Bajak Laut", 86 * TILE, 35 * TILE);
+  // NPC Mayor
+  rect(MAYOR.x * TILE + 8, MAYOR.y * TILE + 16, 16, 14, "#7a2b50");
+  rect(MAYOR.x * TILE + 9, MAYOR.y * TILE + 3, 14, 13, "#f2c185");
+  rect(MAYOR.x * TILE + 9, MAYOR.y * TILE + 3, 14, 5, "#333");
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 11px sans-serif";
+  ctx.fillText("Mayor", MAYOR.x * TILE + 2, MAYOR.y * TILE - 3);
   // pemain
   const p = S.player;
   rect(p.x + 8, p.y + 16, 16, 14, "#2b50c8");       // badan
@@ -425,10 +534,8 @@ function rotateBelt() {
 
 function canvasTile(e) {
   const r = canvas.getBoundingClientRect();
-  const camX = Math.max(0, Math.min(MW * TILE - canvas.width, S.player.x + TILE / 2 - canvas.width / 2));
-  const camY = Math.max(0, Math.min(MH * TILE - canvas.height, S.player.y + TILE / 2 - canvas.height / 2));
-  const wx = (e.clientX - r.left) * (canvas.width / r.width) + camX;
-  const wy = (e.clientY - r.top) * (canvas.height / r.height) + camY;
+  const wx = (e.clientX - r.left) * (canvas.width / r.width) + cam.x;
+  const wy = (e.clientY - r.top) * (canvas.height / r.height) + cam.y;
   return [Math.floor(wx / TILE), Math.floor(wy / TILE)];
 }
 canvas.addEventListener("click", e => {
@@ -484,7 +591,7 @@ function tickPlayer(dt) {
 }
 
 // ---------- simpan / muat ----------
-const SAVE_KEY = "indotopia-save-v1";
+const SAVE_KEY = "indotopia-save-v2"; // v2: map 96x60, simpanan lama 33x22 diabaikan
 function save() {
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* penyimpanan penuh/diblokir */ }
 }
@@ -506,7 +613,7 @@ document.getElementById("btnSave").onclick = () => { save(); toast("Tersimpan");
 document.getElementById("btnReset").onclick = () => {
   if (!confirm("Reset game ke awal? Semua simpanan dihapus.")) return;
   localStorage.removeItem(SAVE_KEY);
-  S = freshState(); seedNodes(); buildMode = null; closePanel(); updateHUD();
+  S = freshState(); seedNodes(); snapCam(); buildMode = null; closePanel(); updateHUD();
   toast("Game direset. Modal $" + DATA.startMoney);
 };
 
@@ -518,6 +625,10 @@ function loop(now) {
   tickPlayer(dt);
   tickMachines(dt);
   tickBelts(dt);
+  const [ctX, ctY] = camTarget();
+  const ck = Math.min(1, dt * 5);
+  cam.x += (ctX - cam.x) * ck;
+  cam.y += (ctY - cam.y) * ck;
   draw();
   saveTimer += dt;
   if (saveTimer > 5) { saveTimer = 0; save(); updateHUD(); }
@@ -526,6 +637,7 @@ function loop(now) {
 
 S = freshState();
 if (!load()) seedNodes(); else if (!S.nodes || !S.nodes.length) seedNodes();
+snapCam();
 updateHUD();
 addEventListener("beforeunload", save);
 requestAnimationFrame(loop);
