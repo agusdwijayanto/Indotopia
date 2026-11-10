@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Indotopia</title>
+<meta name="description" content="Game tycoon pabrik 2D di browser, terinspirasi Factory Town Tycoon. Bangun rantai produksi dari kayu sampai Motor.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="hud">
+  <span class="logo">Indotopia</span>
+  <span id="money">$0</span>
+  <span id="active">Item aktif: 0/150</span>
+  <button id="btnBuild">Bangun</button>
+  <button id="btnInv">Inventaris</button>
+  <button id="btnSave">Simpan</button>
+  <button id="btnReset">Reset</button>
+</header>
+
+<main id="wrap">
+  <canvas id="game" width="1056" height="720"></canvas>
+  <aside id="invPanel" class="hidden">
+    <h3>Inventaris</h3>
+    <div id="invList"></div>
+  </aside>
+</main>
+
+<div id="panel" class="hidden"></div>
+<div id="toast" class="hidden"></div>
+
+<div id="touchUI">
+  <div id="joy"><div id="joyKnob"></div></div>
+  <button id="btnAct">Aksi</button>
+  <button id="btnBeltDir">Sabuk: ▶</button>
+</div>
+
+<p id="help">WASD/panah: jalan &nbsp;|&nbsp; E: interaksi (panen, mesin, toko) &nbsp;|&nbsp; R: putar arah conveyor &nbsp;|&nbsp; B: menu bangun &nbsp;|&nbsp; Klik juga bisa.</p>
+
+<script src="data.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
